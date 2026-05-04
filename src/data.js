@@ -252,6 +252,16 @@ const SEGMENT_PROFILE = {
 const US_STATES = ['HI','NY','FL','CA','TX','NJ','CT','MA','PA','OH','IL','WA','AZ','CO','GA'];
 const STATE_WEIGHTS = [8,12,10,14,9,5,4,5,4,3,4,5,4,4,4];
 
+// Category preference weights per segment: [local/artisan, national chain, duty-free/luxury, quick-service]
+const SEGMENT_CATEGORY_PREF = {
+  'Domestic Leisure':  [0.30, 0.45, 0.10, 0.15],
+  'Domestic Business': [0.15, 0.55, 0.12, 0.18],
+  "Int'l Leisure":     [0.52, 0.10, 0.28, 0.10],
+  "Int'l Business":    [0.20, 0.20, 0.45, 0.15],
+  'Transit':           [0.12, 0.22, 0.08, 0.58],
+};
+const CATEGORY_PREF_LABELS = ['local/artisan', 'national chain', 'duty-free/luxury', 'quick-service'];
+
 function weightedIndex(weights, v) {
   const total = weights.reduce((a,b)=>a+b,0);
   let cum = 0, r = v * total;
@@ -304,6 +314,10 @@ for (const [segment, count] of Object.entries(SEGMENT_COUNTS)) {
       : isLoyaltyLinked ? 'LOYALTY'
       : 'FLIGHT';
 
+    // Use 'cat'+idx as input to break correlation with terminal-assignment hash (v2)
+    const vCat = deterministicVariance('cat' + String(idx), segment, 0);
+    const category_preference = CATEGORY_PREF_LABELS[weightedIndex(SEGMENT_CATEGORY_PREF[segment], vCat)];
+
     const spendFB      = Math.round((profile.fbBase   + v  * profile.fbBase)   * (isLinked ? 1.2 : 1));
     const spendRetail  = Math.round((profile.retBase  + v2 * profile.retBase)  * (isLinked ? 1.2 : 1));
     const spendPremium = Math.round((profile.premBase + v3 * profile.premBase) * (isLinked ? 1.2 : 1));
@@ -330,6 +344,7 @@ for (const [segment, count] of Object.entries(SEGMENT_COUNTS)) {
       dwell_minutes:           Math.round(20 + v2 * 160),
       home_state:              homeState,
       prior_visit_flag:        v > 0.55,
+      category_preference,
     });
   }
 }

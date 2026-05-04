@@ -598,6 +598,16 @@ const SEGMENT_PROFILE = {
 const US_STATES = ['HI','NY','FL','CA','TX','NJ','CT','MA','PA','OH','IL','WA','AZ','CO','GA'];
 const STATE_WEIGHTS = [8,12,10,14,9,5,4,5,4,3,4,5,4,4,4];
 
+// Category preference weights per segment: [local/artisan, national chain, duty-free/luxury, quick-service]
+const SEGMENT_CATEGORY_PREF = {
+  'Domestic Leisure':  [0.30, 0.45, 0.10, 0.15],
+  'Domestic Business': [0.15, 0.55, 0.12, 0.18],
+  "Int'l Leisure":     [0.52, 0.10, 0.28, 0.10],
+  "Int'l Business":    [0.20, 0.20, 0.45, 0.15],
+  'Transit':           [0.12, 0.22, 0.08, 0.58],
+};
+const CATEGORY_PREF_LABELS = ['local/artisan', 'national chain', 'duty-free/luxury', 'quick-service'];
+
 function weightedIndex(weights, v) {
   const total = weights.reduce((a,b)=>a+b,0);
   let cum = 0, r = v * total;
@@ -650,6 +660,10 @@ for (const [segment, count] of Object.entries(SEGMENT_COUNTS)) {
       : isLoyaltyLinked ? 'LOYALTY'
       : 'FLIGHT';
 
+    // Use 'cat'+idx as input to break correlation with terminal-assignment hash (v2)
+    const vCat = deterministicVariance('cat' + String(idx), segment, 0);
+    const category_preference = CATEGORY_PREF_LABELS[weightedIndex(SEGMENT_CATEGORY_PREF[segment], vCat)];
+
     const spendFB      = Math.round((profile.fbBase   + v  * profile.fbBase)   * (isLinked ? 1.2 : 1));
     const spendRetail  = Math.round((profile.retBase  + v2 * profile.retBase)  * (isLinked ? 1.2 : 1));
     const spendPremium = Math.round((profile.premBase + v3 * profile.premBase) * (isLinked ? 1.2 : 1));
@@ -676,6 +690,7 @@ for (const [segment, count] of Object.entries(SEGMENT_COUNTS)) {
       dwell_minutes:           Math.round(20 + v2 * 160),
       home_state:              homeState,
       prior_visit_flag:        v > 0.55,
+      category_preference,
     });
   }
 }
@@ -1045,29 +1060,44 @@ function renderConcessionsTab() {
 
 // ─── renderConcessionsCharts ──────────────────────────────────────────────────
 function renderConcessionsCharts(rows) {
-  // 1. Revenue Over Time
+  const cat = STATE.concessions.category;
+  const dim = c => (cat === 'all' || cat === c) ? null : '40';  // null = full opacity, '40' = dimmed
+
+  // Helper: revenue for a row given current category filter
+  const rowRev = r => cat === 'F&B' ? r.revenue_fb
+    : cat === 'Specialty Retail'    ? r.revenue_retail
+    : cat === 'Duty-Free / Premium' ? r.revenue_premium
+    : r.revenue_fb + r.revenue_retail + r.revenue_premium;
+
+  // 1. Revenue Over Time — shows selected category or total
   destroyChart('chart-con-timeline');
   const byDate = {};
-  rows.forEach(r => { byDate[r.date] = (byDate[r.date]||0) + r.revenue_fb + r.revenue_retail + r.revenue_premium; });
+  rows.forEach(r => { byDate[r.date] = (byDate[r.date]||0) + rowRev(r); });
   const dates = Object.keys(byDate).sort();
+  const timelineColor = cat === 'F&B' ? CONFIG.palette.teal
+    : cat === 'Specialty Retail'    ? CONFIG.palette.blue
+    : cat === 'Duty-Free / Premium' ? CONFIG.palette.amber
+    : CONFIG.palette.teal;
   _charts['chart-con-timeline'] = new Chart(document.getElementById('chart-con-timeline'), {
     type:'line',
     data:{ labels:dates.filter((_,i)=>i%7===0),
-      datasets:[{ label:'Revenue', data:dates.filter((_,i)=>i%7===0).map(d=>byDate[d]),
-        borderColor:CONFIG.palette.teal, backgroundColor:CONFIG.palette.teal+'18',
+      datasets:[{ label: cat === 'all' ? 'Total Revenue' : cat,
+        data:dates.filter((_,i)=>i%7===0).map(d=>byDate[d]),
+        borderColor:timelineColor, backgroundColor:timelineColor+'18',
         fill:true, tension:0.3, pointRadius:0 }]},
     options:{ responsive:true, aspectRatio:5, plugins:{legend:{display:false}} },
   });
 
-  // 2. Category Mix by Terminal
+  // 2. Category Mix by Terminal — dims unselected categories
   destroyChart('chart-con-catmix');
+  const mkColor = (base, c) => dim(c) ? base + dim(c) : base;
   _charts['chart-con-catmix'] = new Chart(document.getElementById('chart-con-catmix'), {
     type:'bar',
     data:{ labels: CONFIG.terminals.map(t=>t.split('–')[0].trim()),
       datasets:[
-        { label:'F&B',               data:CONFIG.terminals.map(t=>rows.filter(r=>r.terminal===t).reduce((s,r)=>s+r.revenue_fb,0)),      backgroundColor:CONFIG.palette.teal  },
-        { label:'Specialty Retail',  data:CONFIG.terminals.map(t=>rows.filter(r=>r.terminal===t).reduce((s,r)=>s+r.revenue_retail,0)),  backgroundColor:CONFIG.palette.blue  },
-        { label:'Duty-Free/Premium', data:CONFIG.terminals.map(t=>rows.filter(r=>r.terminal===t).reduce((s,r)=>s+r.revenue_premium,0)), backgroundColor:CONFIG.palette.amber },
+        { label:'F&B',               data:CONFIG.terminals.map(t=>rows.filter(r=>r.terminal===t).reduce((s,r)=>s+r.revenue_fb,0)),      backgroundColor:mkColor(CONFIG.palette.teal,  'F&B') },
+        { label:'Specialty Retail',  data:CONFIG.terminals.map(t=>rows.filter(r=>r.terminal===t).reduce((s,r)=>s+r.revenue_retail,0)),  backgroundColor:mkColor(CONFIG.palette.blue,  'Specialty Retail') },
+        { label:'Duty-Free/Premium', data:CONFIG.terminals.map(t=>rows.filter(r=>r.terminal===t).reduce((s,r)=>s+r.revenue_premium,0)), backgroundColor:mkColor(CONFIG.palette.amber, 'Duty-Free / Premium') },
       ]},
     options:{ responsive:true, scales:{x:{stacked:true},y:{stacked:true}},
       plugins:{legend:{position:'bottom',labels:{boxWidth:10,font:{size:10}}}} },
@@ -1076,10 +1106,10 @@ function renderConcessionsCharts(rows) {
   // 3. Spend per Passenger by Origin Market
   destroyChart('chart-con-origin');
   const originSpendPerPax = CONFIG.originMarkets.map(m => {
-    const rev = TRAVELERS.filter(t=>t.origin_market===m)
-      .reduce((s,t)=>s+t.estimated_total_spend,0);
-    const sample = TRAVELERS.filter(t=>t.origin_market===m).length || 1;
-    return Math.round(rev / sample);
+    const travelers = TRAVELERS.filter(t=>t.origin_market===m);
+    const rev = travelers.reduce((s,t) =>
+      s + (cat === 'F&B' ? t.spend_fb : cat === 'Specialty Retail' ? t.spend_retail : cat === 'Duty-Free / Premium' ? t.spend_premium : t.estimated_total_spend), 0);
+    return Math.round(rev / (travelers.length || 1));
   });
   _charts['chart-con-origin'] = new Chart(document.getElementById('chart-con-origin'), {
     type:'bar',
@@ -1090,7 +1120,7 @@ function renderConcessionsCharts(rows) {
     options:{ responsive:true, plugins:{legend:{display:false}} },
   });
 
-  // 4. Peak Hour Revenue
+  // 4. Peak Hour Revenue (total only — data doesn't have per-category peak breakdown)
   destroyChart('chart-con-peak');
   const peakKeys   = ['peak_morning','peak_midmorning','peak_midday','peak_afternoon','peak_evening'];
   const peakLabels = ['Early Morning','Mid-Morning','Midday','Afternoon','Evening'];
@@ -1102,7 +1132,7 @@ function renderConcessionsCharts(rows) {
     options:{ responsive:true, plugins:{legend:{display:false}} },
   });
 
-  // 5. Transaction Volume by Category
+  // 5. Transaction Volume by Category — dims unselected
   destroyChart('chart-con-txnvol');
   const txnData = [
     rows.reduce((s,r)=>s+r.transactions_fb,0),
@@ -1113,7 +1143,11 @@ function renderConcessionsCharts(rows) {
     type:'bar',
     data:{ labels:CONFIG.categories,
       datasets:[{ label:'Transactions', data:txnData,
-        backgroundColor:[CONFIG.palette.teal,CONFIG.palette.blue,CONFIG.palette.amber] }]},
+        backgroundColor:[
+          mkColor(CONFIG.palette.teal,  'F&B'),
+          mkColor(CONFIG.palette.blue,  'Specialty Retail'),
+          mkColor(CONFIG.palette.amber, 'Duty-Free / Premium'),
+        ]}]},
     options:{ indexAxis:'y', responsive:true, plugins:{legend:{display:false}} },
   });
 }
@@ -1308,21 +1342,30 @@ function renderSpacesTab() {
 
 // ─── renderSpacesCharts ───────────────────────────────────────────────────────
 function renderSpacesCharts(rows) {
-  // 1. Revenue / sqft by terminal (weighted avg)
+  const spaceType = STATE.spaces.spaceType;
+
+  // 1. Revenue / sqft by terminal — filtered to selected space type
   destroyChart('chart-spc-revsqft');
   const revSqftByTerminal = CONFIG.terminals.map(t => {
     const tRows = rows.filter(r=>r.terminal===t);
     if (!tRows.length) return 0;
+    if (spaceType === 'F&B')               return Math.round(tRows.reduce((s,r)=>s+r.revenue_sqft_fb,0)/tRows.length);
+    if (spaceType === 'Specialty Retail')  return Math.round(tRows.reduce((s,r)=>s+r.revenue_sqft_retail,0)/tRows.length);
+    if (spaceType === 'Duty-Free / Premium') return Math.round(tRows.reduce((s,r)=>s+r.revenue_sqft_premium,0)/tRows.length);
+    if (spaceType === 'Available')         return 0;
     return Math.round(
       tRows.reduce((s,r)=>s+r.revenue_sqft_fb,0)/tRows.length * 0.48 +
       tRows.reduce((s,r)=>s+r.revenue_sqft_retail,0)/tRows.length * 0.28 +
       tRows.reduce((s,r)=>s+r.revenue_sqft_premium,0)/tRows.length * 0.24
     );
   });
+  const revSqftColor = spaceType === 'Specialty Retail'   ? CONFIG.palette.blue
+    : spaceType === 'Duty-Free / Premium' ? CONFIG.palette.amber
+    : CONFIG.palette.teal;
   _charts['chart-spc-revsqft'] = new Chart(document.getElementById('chart-spc-revsqft'), {
     type:'bar',
     data:{ labels:CONFIG.terminals.map(t=>t.split('–')[0].trim()),
-      datasets:[{ label:'$/sqft', data:revSqftByTerminal, backgroundColor:CONFIG.palette.teal }]},
+      datasets:[{ label: spaceType === 'all' ? '$/sqft (weighted avg)' : `${spaceType} $/sqft`, data:revSqftByTerminal, backgroundColor:revSqftColor }]},
     options:{ indexAxis:'y', responsive:true, plugins:{legend:{display:false}} },
   });
 
@@ -1343,25 +1386,34 @@ function renderSpacesCharts(rows) {
       plugins:{legend:{position:'bottom',labels:{boxWidth:10,font:{size:10}}}} },
   });
 
-  // 3. Category mix vs passenger traffic (grouped)
+  // 3. Category mix vs passenger traffic — selected type's share highlighted
   destroyChart('chart-spc-catmix');
   const paxByTerminal = CONFIG.terminals.map(t =>
     DAILY_PASSENGERS.filter(r=>r.terminal===t).reduce((s,r)=>s+r.total_passengers,0) / 365
   );
   const maxPax = Math.max(...paxByTerminal);
   const paxNorm = paxByTerminal.map(p => Math.round(p/maxPax*100));
-  const fbShare = CONFIG.terminals.map(t => {
+  const catShareKey = spaceType === 'Specialty Retail' ? 'revenue_sqft_retail'
+    : spaceType === 'Duty-Free / Premium' ? 'revenue_sqft_premium'
+    : 'revenue_sqft_fb';
+  const catShareLabel = spaceType === 'Specialty Retail' ? 'Specialty Retail Share %'
+    : spaceType === 'Duty-Free / Premium' ? 'Duty-Free/Premium Share %'
+    : 'F&B Share %';
+  const catShareColor = spaceType === 'Specialty Retail' ? CONFIG.palette.blue
+    : spaceType === 'Duty-Free / Premium' ? CONFIG.palette.amber
+    : CONFIG.palette.teal;
+  const catShare = CONFIG.terminals.map(t => {
     const tRows = rows.filter(r=>r.terminal===t);
     const total = tRows.reduce((s,r)=>s+r.revenue_sqft_fb+r.revenue_sqft_retail+r.revenue_sqft_premium,0);
-    const fb    = tRows.reduce((s,r)=>s+r.revenue_sqft_fb,0);
-    return total ? Math.round(fb/total*100) : 0;
+    const sel   = tRows.reduce((s,r)=>s+r[catShareKey],0);
+    return total ? Math.round(sel/total*100) : 0;
   });
   _charts['chart-spc-catmix'] = new Chart(document.getElementById('chart-spc-catmix'), {
     type:'bar',
     data:{ labels:CONFIG.terminals.map(t=>t.split('–')[0].trim()),
       datasets:[
-        { label:'Pax Index (0–100)', data:paxNorm,  backgroundColor:CONFIG.palette.gray2 },
-        { label:'F&B Share %',       data:fbShare,  backgroundColor:CONFIG.palette.teal  },
+        { label:'Pax Index (0–100)', data:paxNorm,   backgroundColor:CONFIG.palette.gray2 },
+        { label:catShareLabel,       data:catShare,   backgroundColor:catShareColor  },
       ]},
     options:{ responsive:true,
       plugins:{legend:{position:'bottom',labels:{boxWidth:10,font:{size:10}}}} },
@@ -1489,13 +1541,29 @@ function renderPersonasTab() {
   ].forEach(([id, title, tip]) => row2.appendChild(makeChartCard(id, title, tip)));
   el.appendChild(row2);
 
-  // Vendor recommendation callout
+  // Vendor recommendation callout — derived from category_preference data
+  const maukaTravelers = TRAVELERS.filter(t => t.global_traveler_id && t.terminal === 'Mauka Concourse');
+  const allLinkedTravelers = TRAVELERS.filter(t => t.global_traveler_id);
+  const maukaPrefPct = pref => maukaTravelers.length
+    ? Math.round(maukaTravelers.filter(t => t.category_preference === pref).length / maukaTravelers.length * 100) : 0;
+  const airportPrefPct = pref => allLinkedTravelers.length
+    ? Math.round(allLinkedTravelers.filter(t => t.category_preference === pref).length / allLinkedTravelers.length * 100) : 0;
+  const localMauka   = maukaPrefPct('local/artisan');
+  const localAirport = airportPrefPct('local/artisan');
+  const qsMauka      = maukaPrefPct('quick-service');
+  const luxMauka     = maukaPrefPct('duty-free/luxury');
+  const localIdx     = localAirport ? Math.round(localMauka / localAirport * 10) / 10 : 0;
+
   const callout = document.createElement('div');
   callout.className = 'vendor-callout';
   callout.innerHTML = `
     <div class="vendor-callout-title">Vendor Recruitment Recommendation — Mauka Concourse</div>
     The 2 vacant Mauka Concourse spaces (M4 &amp; M5) face the highest-concentration international transit corridor at HNL.
-    Passenger personas flowing past them index <strong>4× on premium goods</strong> and <strong>local Hawaiian brands</strong> vs. the airport average.
+    Among linked Mauka travelers: <strong>${localMauka}% prefer local/artisan goods</strong> (${localIdx}× the airport average of ${localAirport}%)
+    and <strong>${luxMauka}% prefer duty-free/luxury</strong> (${Math.round(luxMauka / (airportPrefPct('duty-free/luxury') || 1) * 10) / 10}× airport average) —
+    driven by the international leisure segment that indexes <strong>${CONFIG.scale.intlLeisureSpendPremium}× on premium spend</strong>.
+    Transit passengers make up ~40% of Mauka foot traffic but are underrepresented in linked data (42% match rate vs. 72–80% for leisure/business);
+    their short dwell profile indicates a <strong>Quick-Service F&amp;B</strong> gap.
     <br><br>
     <strong>Recommended category mix:</strong> Premium Retail &nbsp;/&nbsp; Local Hawaiian Brands &nbsp;/&nbsp; Quick-Service F&amp;B`;
   el.appendChild(callout);
