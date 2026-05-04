@@ -273,8 +273,14 @@ for (const [segment, count] of Object.entries(SEGMENT_COUNTS)) {
     const v2 = deterministicVariance(String(idx), segment, 31);
     const v3 = deterministicVariance(String(idx), segment, 32);
     const v4 = deterministicVariance(String(idx), segment, 33);
+    const v5 = deterministicVariance(String(idx), segment, 34);
 
-    const isLinked = v < profile.linkedProb;
+    // Flight-linked: matched through full pipeline
+    // Soft-linked: appeared in POS or loyalty data only (no flight manifest match)
+    const isFlightLinked  = v < profile.linkedProb;
+    const isPOSLinked     = !isFlightLinked && (idx % 15 === 3);
+    const isLoyaltyLinked = !isFlightLinked && (idx % 15 === 7);
+    const isLinked        = isFlightLinked || isPOSLinked || isLoyaltyLinked;
 
     const termIdx   = weightedIndex(profile.terminals, v2);
     const terminal  = CONFIG.terminals[termIdx];
@@ -287,8 +293,15 @@ for (const [segment, count] of Object.entries(SEGMENT_COUNTS)) {
       : weightedIndex(TERMINAL_CARRIER_WEIGHTS["Terminal 1 – Domestic"], v4);
     const carrier = CONFIG.carriers[carrierIdx];
 
-    const linkedSources = isLinked
-      ? (['FLIGHT', v > 0.3 ? 'POS' : null, v > 0.55 ? 'LOYALTY' : null].filter(Boolean).join('|'))
+    // hasPOS and hasLoyalty are independent flags
+    // Loyalty uses modular arithmetic (avoids hash correlation with v)
+    const loyaltyMod = segment.length % 3;
+    const hasPOS     = v > 0.30;
+    const hasLoyalty = (idx % 3) === loyaltyMod;
+    const linkedSources = isFlightLinked
+      ? (['FLIGHT', hasPOS ? 'POS' : null, hasLoyalty ? 'LOYALTY' : null].filter(Boolean).join('|'))
+      : isPOSLinked     ? 'POS'
+      : isLoyaltyLinked ? 'LOYALTY'
       : 'FLIGHT';
 
     const spendFB      = Math.round((profile.fbBase   + v  * profile.fbBase)   * (isLinked ? 1.2 : 1));
@@ -305,7 +318,11 @@ for (const [segment, count] of Object.entries(SEGMENT_COUNTS)) {
       origin_market,
       carrier,
       linked_sources:          linkedSources,
-      match_confidence_score:  isLinked ? Math.round((0.85 + v * 0.14) * 100) / 100 : null,
+      match_confidence_score:  isLinked
+        ? (isFlightLinked
+            ? Math.round((0.85 + v * 0.14) * 100) / 100
+            : Math.round((0.62 + v * 0.18) * 100) / 100)
+        : null,
       spend_fb:                spendFB,
       spend_retail:            spendRetail,
       spend_premium:           spendPremium,
