@@ -1,0 +1,43 @@
+const CONFIG = {
+  org: {
+    name:    "Daniel K. Inouye International Airport",
+    tagline: "Honolulu, Hawaiʻi — 21.9M Passengers Annually",
+  },
+  terminals: [
+    "Terminal 1 – Domestic",
+    "Terminal 2 – International",
+    "Mauka Concourse",
+    "Interisland Terminal",
+  ],
+  originMarkets: ["US Mainland", "Japan", "Korea", "Australia", "Canada"],
+  carriers: ["Hawaiian Airlines", "United", "Delta", "JAL", "ANA", "Korean Air"],
+  categories: ["F&B", "Specialty Retail", "Duty-Free / Premium"],
+  spaceTypes: ["F&B", "Specialty Retail", "Duty-Free / Premium", "Available"],
+  scale: {
+    totalPassengers:        21_900_000,
+    linkedProfiles:         13_100_000,
+    intlPassengerShare:     28,
+    matchConfidence:        92,
+    avgDwellMinutes:        74,
+    spendPerEnplanement:    18.40,
+    retailConversionRate:   23,
+    intlLeisureSpendPremium: 4.1,
+    vacantSpaces:           2,
+    totalRetailSqft:        142_000,
+    vacantSqft:             8_400,
+    sampleSize:             3_000,
+  },
+  palette: {
+    navy:   "#1B2A4A",
+    teal:   "#0D9488",
+    teal2:  "#0F766E",
+    amber:  "#F59E0B",
+    slate:  "#5B7FA6",
+    blue:   "#2E618F",
+    gray:   "#8B96A5",
+    gray2:  "#C5CBD4",
+  },
+  p3rl: {
+    badgeLabel: "Powered by P3RL Identity Resolution",
+  },
+};
