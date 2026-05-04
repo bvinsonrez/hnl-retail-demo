@@ -834,6 +834,15 @@ function renderPersonasCharts(travelers) {
   const posLoy      = linked3.filter(t=>!hasF(t) &&  hasP(t) &&  hasL(t)).length;
   const allThree    = linked3.filter(t=> hasF(t) &&  hasP(t) &&  hasL(t)).length;
 
+  // Scale sample counts to the actual 13.1M linked profile universe
+  const scaleFactor = CONFIG.scale.linkedProfiles / linked3.length;
+  const scaleVenn = n => {
+    const s = Math.round(n * scaleFactor);
+    if (s >= 1_000_000) return (s / 1_000_000).toFixed(1) + 'M';
+    if (s >= 1_000)     return Math.round(s / 1_000) + 'K';
+    return s.toString();
+  };
+
   const vennEl = document.getElementById('chart-personas-venn');
   vennEl.innerHTML = '';
   const VW = vennEl.clientWidth || 280, VH = 240, r=72;
@@ -855,13 +864,13 @@ function renderPersonasCharts(travelers) {
   vtxt(VW/2+105,52,'POS',11,true,'#0D9488');
   vtxt(VW/2,228,'Loyalty',11,true,'#2E618F');
 
-  vtxt(VW/2-90,85,flightOnly.toString());
-  vtxt(VW/2+90,85,posOnly.toString());
-  vtxt(VW/2,210,loyaltyOnly.toString());
-  vtxt(VW/2,62,flightPOS.toString(),11,true,'#0D9488');  // largest 2-way — bold
-  vtxt(VW/2-48,130,flightLoy.toString());
-  vtxt(VW/2+48,130,posLoy.toString());
-  vtxt(VW/2,110,allThree.toLocaleString(),13,true,'#B45309');  // insight moment
+  vtxt(VW/2-90,85,scaleVenn(flightOnly));
+  vtxt(VW/2+90,85,scaleVenn(posOnly));
+  vtxt(VW/2,210,scaleVenn(loyaltyOnly));
+  vtxt(VW/2,62,scaleVenn(flightPOS),11,true,'#0D9488');  // largest 2-way — bold
+  vtxt(VW/2-48,130,scaleVenn(flightLoy));
+  vtxt(VW/2+48,130,scaleVenn(posLoy));
+  vtxt(VW/2,110,scaleVenn(allThree),13,true,'#B45309');  // insight moment
 
   // 3. Spend scatter by segment
   destroyChart('chart-personas-spend');
